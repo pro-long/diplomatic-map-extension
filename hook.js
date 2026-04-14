@@ -1,12 +1,12 @@
-// hook.js - Webpack Deep Interceptor
-
-console.log("[DiploOS] Injecting Webpack Trap...");
+// hook.js - High-Performance Webpack Object Sniffer
+console.log("[DiploOS] Initializing High-Performance Webpack Hook...");
 
 const TARGET_LAYERS = ['country-fill', 'region-fill', 'inner-country-fill'];
 let hookedMap = null;
 let originalColors = {};
 let activeDiploHandler = null;
 
+// --- 1. THE OPTIMIZED WEBPACK TRAP ---
 function installWebpackHook() {
     let _webpackChunk = [];
 
@@ -21,33 +21,45 @@ function installWebpackHook() {
                     const modules = chunkArray[1]; 
                     if (modules) {
                         for (let moduleId in modules) {
-                            let origModule = modules[moduleId];
-                            let moduleCode = origModule.toString();
+                            const origModule = modules[moduleId];
 
-                            if (moduleCode.includes('getLayer') && moduleCode.includes('addSource')) {
-                                console.log("[DiploOS] Intercepting Map Engine chunk!");
+                            // WE WRAP THE MODULE EXECUTION (Zero string-scanning overhead!)
+                            modules[moduleId] = function(module, exports, __webpack_require__) {
+                                // 1. Let Next.js run the code normally
+                                origModule.call(this, module, exports, __webpack_require__);
 
-                                modules[moduleId] = function(module, exports, __webpack_require__) {
-                                    origModule(module, exports, __webpack_require__);
+                                // 2. Check the output (Extremely fast object property check)
+                                let targetObj = exports;
+                                if (exports.default && exports.default.Map) targetObj = exports.default;
+                                else if (module.exports && module.exports.Map) targetObj = module.exports;
 
-                                    let targetObj = exports.default?.Map ? exports.default : module.exports;
+                                // 3. Look for MapLibre/Mapbox signature
+                                if (targetObj && targetObj.Map && targetObj.Map.prototype && targetObj.Map.prototype.getLayer) {
+                                    
+                                    // Prevent double-hooking if Next.js reloads the module
+                                    if (targetObj.Map.__isHooked) return;
 
-                                    if (targetObj?.Map) {
-                                        const OriginalMap = targetObj.Map;
-                                        targetObj.Map = function(...args) {
-                                            const mapInstance = new OriginalMap(...args);
-                                            hookedMap = mapInstance; 
-                                            return mapInstance;
-                                        };
-                                        targetObj.Map.prototype = OriginalMap.prototype;
-                                    }
-                                };
-                            }
+                                    console.log("[DiploOS] SUCCESS: Map Engine caught by Object Sniffer!");
+                                    const OriginalMap = targetObj.Map;
+                                    
+                                    // 4. Hijack the Constructor
+                                    targetObj.Map = function(...args) {
+                                        console.log("[DiploOS] GAME IS SPAWNING THE MAP!");
+                                        const mapInstance = new OriginalMap(...args);
+                                        hookedMap = mapInstance; 
+                                        return mapInstance;
+                                    };
+                                    
+                                    targetObj.Map.prototype = OriginalMap.prototype;
+                                    targetObj.Map.__isHooked = true;
+                                }
+                            };
                         }
                     }
                 } catch (e) {
                     console.error("[DiploOS] Hook error:", e);
                 }
+                
                 return originalPush.apply(this, arguments);
             };
         },
@@ -55,22 +67,23 @@ function installWebpackHook() {
     });
 }
 
+// Plant the trap
 installWebpackHook();
 
+
+// --- 2. THE DIPLOMACY CONTROLLER ---
 window.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'DIPLO_TOGGLE') {
         
         if (event.data.active && hookedMap) {
             console.log("[DiploOS] Activating Tactical View...");
 
-            // Save original colors
             TARGET_LAYERS.forEach(layer => {
                 if (hookedMap.getLayer(layer) && !originalColors[layer]) {
                     originalColors[layer] = hookedMap.getPaintProperty(layer, 'fill-color');
                 }
             });
 
-            // Handle Click
             activeDiploHandler = (e) => {
                 if (!e.features || !e.features.length) return;
 
@@ -78,14 +91,13 @@ window.addEventListener('message', (event) => {
                 const clickedId = props.countryId || props.initialCountryId || props.id; 
 
                 if (!clickedId) return;
-                
                 console.log(`[DiploOS] Clicked ID: ${clickedId}`);
 
                 const colorExpression = [
                     'match',
                     ['coalesce', ['get', 'countryId'], ['get', 'initialCountryId'], ['get', 'id']],
-                    clickedId, '#3498db', // Selected color
-                    '#1a1a1a' // Neutral fallback
+                    clickedId, '#3498db', // Selected Color
+                    '#1a1a1a' // Neutral Color
                 ];
 
                 TARGET_LAYERS.forEach(layer => {
@@ -95,7 +107,6 @@ window.addEventListener('message', (event) => {
 
             hookedMap.on('click', 'country-fill', activeDiploHandler);
 
-            // Set initial dark theme
             TARGET_LAYERS.forEach(layer => {
                 if (hookedMap.getLayer(layer)) hookedMap.setPaintProperty(layer, 'fill-color', '#1a1a1a');
             });
