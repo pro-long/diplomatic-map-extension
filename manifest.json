@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "WarEra Diplomacy OS",
+  "version": "1.0",
+  "description": "Tactical overlay for WarEra map.",
+  "content_scripts": [
+    {
+      "matches": ["*://app.warera.io/*"],
+      "css": ["styles.css"],
+      "js": ["ui.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://app.warera.io/*"],
+      "js": ["hook.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    }
+  ]
+}
