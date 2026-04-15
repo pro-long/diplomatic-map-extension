@@ -6,7 +6,6 @@
   "content_scripts": [
     {
       "matches": ["*://app.warera.io/*"],
-      "css": ["styles.css"],
       "js": ["ui.js"],
       "run_at": "document_idle"
     },
