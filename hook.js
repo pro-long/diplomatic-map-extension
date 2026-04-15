@@ -9,42 +9,73 @@ let activeDiploHandler = null;
 // Global storage for the API data
 let globalCountryData = {}; 
 
-// --- 1. DATA FETCHING LOGIC ---
-// --- 1. DATA FETCHING LOGIC ---
-async function fetchDiplomacyData() {
+// --- 1. DATA INTERCEPTION LOGIC (Passive Hook) ---
+const originalFetch = window.fetch;
+
+window.fetch = async function(...args) {
+    const response = await originalFetch.apply(this, args);
+    
     try {
-        console.log("[DiploOS] Fetching live server data...");
-        // Call the official WarEra API
-        const response = await fetch('https://api2.warera.io/trpc/country.getAllCountries?batch=1');
-        const data = await response.json();
-
-        // THE FIX: Removed the `.json` that tRPC usually adds, matching your exact API response
-        const countriesArray = data[0]?.result?.data || [];
-
-        // Map the array into a fast-lookup dictionary
-        globalCountryData = {};
-        countriesArray.forEach(country => {
-            globalCountryData[country._id] = {
-                allies: country.allies || [],       // Blue
-                enemies: country.warsWith || [],    // Red
-                battles: country.enemy ? [country.enemy] : [] // Orange
-            };
-        });
-
-        console.log(`[DiploOS] Intelligence gathered for ${countriesArray.length} countries.`);
+        const requestUrl = (typeof args[0] === 'string') ? args[0] : (args[0] instanceof Request ? args[0].url : '');
         
-        // Safety net: If it STILL says 0, this will print the raw data so we can see why!
-        if (countriesArray.length === 0) {
-            console.warn("[DiploOS] Data is still empty! Here is what the server returned:", data);
+        if (requestUrl.includes('country.getAllCountries')) {
+            console.log("[DiploOS] Intercepted country data stream! Analyzing payload...");
+            
+            const clone = response.clone();
+            
+            clone.json().then(data => {
+                // 1. SMART BATCH PARSING
+                const urlPath = requestUrl.split('/trpc/')[1]?.split('?')[0] || '';
+                const endpoints = urlPath.split(',');
+                const targetIndex = endpoints.indexOf('country.getAllCountries');
+
+                if (targetIndex === -1) return; // Failsafe
+
+                // 2. Grab exact data object
+                let targetData = data[targetIndex]?.result?.data;
+
+                // 3. Unwrap tRPC json formatting
+                if (targetData && targetData.json) {
+                    targetData = targetData.json;
+                }
+
+                // 4. Ensure array
+                let countriesArray = [];
+                if (Array.isArray(targetData)) {
+                    countriesArray = targetData; 
+                } else if (targetData && typeof targetData === 'object') {
+                    countriesArray = Object.values(targetData);
+                }
+
+                if (countriesArray.length === 0) {
+                    console.warn("[DiploOS] Target index found, but data is empty. Raw slice:", targetData);
+                    return; 
+                }
+
+                // 5. Map into fast-lookup dictionary
+                globalCountryData = {};
+                countriesArray.forEach(country => {
+                    if (!country || !country._id) return; 
+                    
+                    globalCountryData[country._id] = {
+                        allies: country.allies || [],       // Blue
+                        battles: country.warsWith || [],    // Orange
+                        enemies: country.enemy ? [country.enemy] : [] // Red
+                    };
+                });
+                
+                console.log(`[DiploOS] Intelligence silently gathered for ${Object.keys(globalCountryData).length} countries from batch index [${targetIndex}]!`);
+            }).catch(err => console.error("[DiploOS] Error parsing intercepted JSON:", err));
         }
-
-    } catch (error) {
-        console.error("[DiploOS] Failed to fetch intelligence data:", error);
+    } catch(e) {
+        console.error("[DiploOS] Fetch intercept error:", e);
     }
-}
+    
+    return response;
+};
 
 
-// --- 2. THE OPTIMIZED WEBPACK TRAP ---
+// --- 2. THE OPTIMIZED WEBPACK INTERCEPTOR ---
 function installWebpackHook() {
     let _webpackChunk = [];
 
@@ -98,14 +129,11 @@ installWebpackHook();
 
 
 // --- 3. THE DIPLOMACY CONTROLLER ---
-window.addEventListener('message', async (event) => {
+window.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'DIPLO_TOGGLE') {
         
         if (event.data.active && hookedMap) {
             console.log("[DiploOS] Activating Tactical View...");
-
-            // Fetch the live API data right as the OS is turned on
-            await fetchDiplomacyData();
 
             // Save original game colors
             TARGET_LAYERS.forEach(layer => {
@@ -114,7 +142,6 @@ window.addEventListener('message', async (event) => {
                 }
             });
 
-            // Handle Country Clicks
             // Handle Country Clicks
             activeDiploHandler = (e) => {
                 if (!e.features || !e.features.length) return;
