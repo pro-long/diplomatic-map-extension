@@ -5,10 +5,19 @@ const TARGET_LAYERS = ['country-fill', 'region-fill', 'inner-country-fill'];
 let hookedMap = null;
 let activeDiploHandler = null;
 
-// Global storage for the API data
-let globalCountryData = {}; 
+let globalCountryData = {}; // Global storage for the API data
+let localNapStorage = {}; // Holds the data passed from ui.js
 
-// --- 1. DATA INTERCEPTION LOGIC (Passive Hook) ---
+// 0. Catch NAP data from ui.js
+window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'NAP_DATA_LOADED') {
+        localNapStorage = event.data.payload;
+        console.log(`[DiploOS] Intelligence: Local NAP list secured for ${Object.keys(localNapStorage).length} countries.`);
+    }
+});
+
+
+// 1. DATA INTERCEPTION LOGIC (Passive Hook)
 const originalFetch = window.fetch;
 
 window.fetch = async function(...args) {
@@ -59,7 +68,8 @@ window.fetch = async function(...args) {
                     globalCountryData[country._id] = {
                         allies: country.allies || [],       // Blue
                         enemies: country.warsWith || [],    // Red
-                        battles: country.enemy ? [country.enemy] : [] // Orange
+                        battles: country.enemy ? [country.enemy] : [], // Orange
+                        naps: localNapStorage[country._id] || []
                     };
                 });
                 
@@ -73,7 +83,7 @@ window.fetch = async function(...args) {
     return response;
 };
 
-// --- 2. THE OPTIMIZED WEBPACK INTERCEPT ---
+// 2. THE OPTIMIZED WEBPACK INTERCEPT
 function installWebpackHook() {
     let _webpackChunk = [];
 
@@ -126,7 +136,7 @@ function installWebpackHook() {
 installWebpackHook();
 
 
-// --- 3. THE DIPLOMACY CONTROLLER (Ghost Layers) ---
+// 3. THE DIPLOMACY CONTROLLER (Ghost Layers)
 window.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'DIPLO_TOGGLE') {
         
@@ -219,7 +229,17 @@ window.addEventListener('message', (event) => {
                     });
                 }
 
-                // 5. Fallback: Dark Grey Theme
+                // 5. Fifth Priority: NAPs -> Purple
+                if (diploInfo.naps && diploInfo.naps.length > 0) {
+                    diploInfo.naps.forEach(id => {
+                        if (!processedIds.has(id)) {
+                            colorExpression.push(id, '#9b59b6');
+                            processedIds.add(id);
+                        }
+                    });
+                }
+
+                // 6. Fallback: Dark Grey Theme
                 colorExpression.push('#1a1a1a'); 
 
                 // Apply exclusively to Ghost Layers

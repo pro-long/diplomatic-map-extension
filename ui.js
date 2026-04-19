@@ -99,3 +99,12 @@ window.addEventListener('message', (event) => {
         }
     }
 });
+
+// Load Local NAP Data and forward to hook.js
+fetch(chrome.runtime.getURL('naps.json'))
+    .then(response => response.json())
+    .then(data => {
+        console.log(`[DiploOS UI] Local NAP JSON loaded. Forwarding to engine...`);
+        window.postMessage({ type: 'NAP_DATA_LOADED', payload: data }, '*');
+    })
+    .catch(err => console.error("[DiploOS UI] Failed to load local naps.json:", err));
