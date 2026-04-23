@@ -5,7 +5,7 @@
 ---
 
 ## Demo
-![WarEra Diplomacy OS Demo]("./assets/extension_demo.gif")
+![WarEra Diplomacy OS Demo](./assets/extension_demo.gif)
 *Real-time tactical overlay showing diplomatic relations and alliance mappings directly on the game engine.*
 
 ---
@@ -68,4 +68,4 @@ This project was inspired by the architectural concepts and vision of the [WarEr
 ---
 
 ## License
-This project is licensed under the MIT License - see the [LICENSE]("./LICENSE") file for details.
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
