@@ -1,50 +1,89 @@
-// hook.js - Data-Driven Diplomacy OS
+// hook.js - Data-Driven Diplomacy OS (Ghost Layer Edition)
 console.log("[DiploOS] Initializing High-Performance Webpack Hook...");
 
 const TARGET_LAYERS = ['country-fill', 'region-fill', 'inner-country-fill'];
 let hookedMap = null;
-let originalColors = {};
 let activeDiploHandler = null;
 
-// Global storage for the API data
-let globalCountryData = {}; 
+let globalCountryData = {}; // Global storage for the API data
+let localNapStorage = {}; // Holds the data passed from ui.js
 
-// --- 1. DATA FETCHING LOGIC ---
-// --- 1. DATA FETCHING LOGIC ---
-async function fetchDiplomacyData() {
-    try {
-        console.log("[DiploOS] Fetching live server data...");
-        // Call the official WarEra API
-        const response = await fetch('https://api2.warera.io/trpc/country.getAllCountries?batch=1');
-        const data = await response.json();
-
-        // THE FIX: Removed the `.json` that tRPC usually adds, matching your exact API response
-        const countriesArray = data[0]?.result?.data || [];
-
-        // Map the array into a fast-lookup dictionary
-        globalCountryData = {};
-        countriesArray.forEach(country => {
-            globalCountryData[country._id] = {
-                allies: country.allies || [],       // Blue
-                enemies: country.warsWith || [],    // Red
-                battles: country.enemy ? [country.enemy] : [] // Orange
-            };
-        });
-
-        console.log(`[DiploOS] Intelligence gathered for ${countriesArray.length} countries.`);
-        
-        // Safety net: If it STILL says 0, this will print the raw data so we can see why!
-        if (countriesArray.length === 0) {
-            console.warn("[DiploOS] Data is still empty! Here is what the server returned:", data);
-        }
-
-    } catch (error) {
-        console.error("[DiploOS] Failed to fetch intelligence data:", error);
+// 0. Catch NAP data from ui.js
+window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'NAP_DATA_LOADED') {
+        localNapStorage = event.data.payload;
+        console.log(`[DiploOS] Intelligence: Local NAP list secured for ${Object.keys(localNapStorage).length} countries.`);
     }
-}
+});
 
 
-// --- 2. THE OPTIMIZED WEBPACK TRAP ---
+// 1. DATA INTERCEPTION LOGIC (Passive Hook)
+const originalFetch = window.fetch;
+
+window.fetch = async function(...args) {
+    const response = await originalFetch.apply(this, args);
+    
+    try {
+        const requestUrl = (typeof args[0] === 'string') ? args[0] : (args[0] instanceof Request ? args[0].url : '');
+        
+        if (requestUrl.includes('country.getAllCountries')) {
+            console.log("[DiploOS] Intercepted country data stream! Analyzing payload...");
+            
+            const clone = response.clone();
+            
+            clone.json().then(data => {
+                // 1. SMART BATCH PARSING
+                const urlPath = requestUrl.split('/trpc/')[1]?.split('?')[0] || '';
+                const endpoints = urlPath.split(',');
+                const targetIndex = endpoints.indexOf('country.getAllCountries');
+
+                if (targetIndex === -1) return; // Failsafe
+
+                // 2. Grab exact data object
+                let targetData = data[targetIndex]?.result?.data;
+
+                // 3. Unwrap tRPC json formatting
+                if (targetData && targetData.json) {
+                    targetData = targetData.json;
+                }
+
+                // 4. Ensure array
+                let countriesArray = [];
+                if (Array.isArray(targetData)) {
+                    countriesArray = targetData; 
+                } else if (targetData && typeof targetData === 'object') {
+                    countriesArray = Object.values(targetData);
+                }
+
+                if (countriesArray.length === 0) {
+                    console.warn("[DiploOS] Target index found, but data is empty. Raw slice:", targetData);
+                    return; 
+                }
+
+                // 5. Map into fast-lookup dictionary
+                globalCountryData = {};
+                countriesArray.forEach(country => {
+                    if (!country || !country._id) return; 
+                    
+                    globalCountryData[country._id] = {
+                        allies: country.allies || [],       // Blue
+                        enemies: country.warsWith || [],    // Red
+                        battles: country.enemy ? [country.enemy] : [], // Orange
+                        naps: localNapStorage[country._id] || []
+                    };
+                });
+                
+                console.log(`[DiploOS] Intelligence silently gathered for ${Object.keys(globalCountryData).length} countries from batch index [${targetIndex}]!`);
+            }).catch(err => console.error("[DiploOS] Error parsing intercepted JSON:", err));
+        }
+    } catch(e) {
+        console.error("[DiploOS] Fetch intercept error:", e);
+    }
+    
+    return response;
+};
+
+// 2. THE OPTIMIZED WEBPACK INTERCEPT
 function installWebpackHook() {
     let _webpackChunk = [];
 
@@ -97,25 +136,47 @@ function installWebpackHook() {
 installWebpackHook();
 
 
-// --- 3. THE DIPLOMACY CONTROLLER ---
-window.addEventListener('message', async (event) => {
+// 3. THE DIPLOMACY CONTROLLER (Ghost Layers)
+window.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'DIPLO_TOGGLE') {
         
         if (event.data.active && hookedMap) {
-            console.log("[DiploOS] Activating Tactical View...");
+            console.log("[DiploOS] Activating Tactical Ghost Layers...");
 
-            // Fetch the live API data right as the OS is turned on
-            await fetchDiplomacyData();
+            // 1. Create Ghost Layers
+            TARGET_LAYERS.forEach(layerId => {
+                const origLayer = hookedMap.getLayer(layerId);
+                if (origLayer) {
+                    const ghostId = `diplo-${layerId}`;
+                    
+                    if (!hookedMap.getLayer(ghostId)) {
+                        // Slide ghost layer right above the original
+                        const style = hookedMap.getStyle();
+                        const layerIndex = style.layers.findIndex(l => l.id === layerId);
+                        let insertBeforeId = undefined;
+                        if (layerIndex !== -1 && layerIndex + 1 < style.layers.length) {
+                            insertBeforeId = style.layers[layerIndex + 1].id;
+                        }
 
-            // Save original game colors
-            TARGET_LAYERS.forEach(layer => {
-                if (hookedMap.getLayer(layer) && !originalColors[layer]) {
-                    originalColors[layer] = hookedMap.getPaintProperty(layer, 'fill-color');
+                        hookedMap.addLayer({
+                            id: ghostId,
+                            type: origLayer.type,
+                            source: origLayer.source,
+                            'source-layer': origLayer.sourceLayer,
+                            paint: {
+                                'fill-color': '#1a1a1a', 
+                                'fill-opacity': 1 
+                            }
+                        }, insertBeforeId);
+                    } else {
+                        // Un-hide if it already exists
+                        hookedMap.setLayoutProperty(ghostId, 'visibility', 'visible');
+                        hookedMap.setPaintProperty(ghostId, 'fill-color', '#1a1a1a');
+                    }
                 }
             });
 
-            // Handle Country Clicks
-            // Handle Country Clicks
+            // 2. Handle Country Clicks
             activeDiploHandler = (e) => {
                 if (!e.features || !e.features.length) return;
 
@@ -125,14 +186,13 @@ window.addEventListener('message', async (event) => {
                 if (!clickedId) return;
 
                 const diploInfo = globalCountryData[clickedId] || { allies: [], enemies: [], battles: [] };
-                console.log(`[DiploOS] Target ID: ${clickedId} | Allies: ${diploInfo.allies.length} | Wars: ${diploInfo.enemies.length}`);
+                console.log(`[DiploOS] Target ID: ${clickedId} | Allies: ${diploInfo.allies.length} | Wars: ${diploInfo.enemies.length} | Enemy: ${diploInfo.battles.length > 0 ? diploInfo.battles[0] : 'None'}`);
 
                 const colorExpression = [
                     'match',
                     ['coalesce', ['get', 'countryId'], ['get', 'initialCountryId'], ['get', 'id']]
                 ];
 
-                // Track IDs so we never pass duplicates to MapLibre
                 const processedIds = new Set();
 
                 // 1. Top Priority: Clicked Country -> Yellow
@@ -169,30 +229,41 @@ window.addEventListener('message', async (event) => {
                     });
                 }
 
-                // 5. Fallback: Everyone Else -> Dark Grey Theme
+                // 5. Fifth Priority: NAPs -> Purple
+                if (diploInfo.naps && diploInfo.naps.length > 0) {
+                    diploInfo.naps.forEach(id => {
+                        if (!processedIds.has(id)) {
+                            colorExpression.push(id, '#9b59b6');
+                            processedIds.add(id);
+                        }
+                    });
+                }
+
+                // 6. Fallback: Dark Grey Theme
                 colorExpression.push('#1a1a1a'); 
 
-                // Apply to map
+                // Apply exclusively to Ghost Layers
                 TARGET_LAYERS.forEach(layer => {
-                    if (hookedMap.getLayer(layer)) hookedMap.setPaintProperty(layer, 'fill-color', colorExpression);
+                    const ghostId = `diplo-${layer}`;
+                    if (hookedMap.getLayer(ghostId)) {
+                        hookedMap.setPaintProperty(ghostId, 'fill-color', colorExpression);
+                    }
                 });
             };
             
+            // Listen to clicks on the original, native layer
             hookedMap.on('click', 'country-fill', activeDiploHandler);
-
-            // Turn map grey initially until they click something
-            TARGET_LAYERS.forEach(layer => {
-                if (hookedMap.getLayer(layer)) hookedMap.setPaintProperty(layer, 'fill-color', '#1a1a1a');
-            });
 
             window.postMessage({ type: 'DIPLO_STATUS', success: true, zoom: Math.round(hookedMap.getZoom()) }, '*');
             
         } else if (!event.data.active && hookedMap) {
-            console.log("[DiploOS] Restoring Original View...");
+            console.log("[DiploOS] Restoring Original View (Hiding Ghosts)...");
             
+            // Hide our clones, revealing the untouched game layers underneath
             TARGET_LAYERS.forEach(layer => {
-                if (hookedMap.getLayer(layer) && originalColors[layer]) {
-                    hookedMap.setPaintProperty(layer, 'fill-color', originalColors[layer]);
+                const ghostId = `diplo-${layer}`;
+                if (hookedMap.getLayer(ghostId)) {
+                    hookedMap.setLayoutProperty(ghostId, 'visibility', 'none');
                 }
             });
 
